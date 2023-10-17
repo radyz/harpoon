@@ -3,6 +3,7 @@ local action_utils = require("telescope.actions.utils")
 local entry_display = require("telescope.pickers.entry_display")
 local finders = require("telescope.finders")
 local pickers = require("telescope.pickers")
+local utils = require("telescope.utils")
 local conf = require("telescope.config").values
 local harpoon = require("harpoon")
 local harpoon_mark = require("harpoon.mark")
@@ -19,34 +20,10 @@ local function prepare_results(list)
     return next
 end
 
-local generate_new_finder = function()
+local generate_new_finder = function(entry_maker)
     return finders.new_table({
         results = prepare_results(harpoon.get_mark_config().marks),
-        entry_maker = function(entry)
-            local line = entry.filename .. ":" .. entry.row .. ":" .. entry.col
-            local displayer = entry_display.create({
-                separator = " - ",
-                items = {
-                    { width = 2 },
-                    { width = 50 },
-                    { remaining = true },
-                },
-            })
-            local make_display = function()
-                return displayer({
-                    tostring(entry.index),
-                    line,
-                })
-            end
-            return {
-                value = entry,
-                ordinal = line,
-                display = make_display,
-                lnum = entry.row,
-                col = entry.col,
-                filename = entry.filename,
-            }
-        end,
+        entry_maker = entry_maker,
     })
 end
 
@@ -79,7 +56,7 @@ local delete_harpoon_mark = function(prompt_bufnr)
     end
 
     local current_picker = action_state.get_current_picker(prompt_bufnr)
-    current_picker:refresh(generate_new_finder(), { reset_prompt = true })
+    current_picker:refresh(generate_new_finder(current_picker.finder.entry_maker), { reset_prompt = true })
 end
 
 local move_mark_up = function(prompt_bufnr)
@@ -96,7 +73,7 @@ local move_mark_up = function(prompt_bufnr)
     table.insert(mark_list, selection.index + 1, selection.value)
 
     local current_picker = action_state.get_current_picker(prompt_bufnr)
-    current_picker:refresh(generate_new_finder(), { reset_prompt = true })
+    current_picker:refresh(generate_new_finder(current_picker.finder.entry_maker), { reset_prompt = true })
 end
 
 local move_mark_down = function(prompt_bufnr)
@@ -108,15 +85,42 @@ local move_mark_down = function(prompt_bufnr)
     table.remove(mark_list, selection.index)
     table.insert(mark_list, selection.index - 1, selection.value)
     local current_picker = action_state.get_current_picker(prompt_bufnr)
-    current_picker:refresh(generate_new_finder(), { reset_prompt = true })
+    current_picker:refresh(generate_new_finder(current_picker.finder.entry_maker), { reset_prompt = true })
 end
 
 return function(opts)
     opts = opts or {}
 
+    local entry_maker = function(entry)
+        local display_filename = utils.transform_path(opts, entry.filename)
+        local line = entry.filename .. ":" .. entry.row .. ":" .. entry.col
+        local displayer = entry_display.create({
+            separator = " ",
+            items = {
+                { width = 2 },
+                { remaining = true },
+            },
+        })
+
+        local make_display = function()
+            return displayer({
+                tostring(entry.index),
+                display_filename,
+            })
+        end
+        return {
+            value = entry,
+            ordinal = line,
+            display = make_display,
+            lnum = entry.row,
+            col = entry.col,
+            filename = entry.filename,
+        }
+    end
+
     pickers.new(opts, {
         prompt_title = "harpoon marks",
-        finder = generate_new_finder(),
+        finder = generate_new_finder(entry_maker),
         sorter = conf.generic_sorter(opts),
         previewer = conf.grep_previewer(opts),
         attach_mappings = function(_, map)
